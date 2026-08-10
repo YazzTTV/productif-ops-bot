@@ -18,13 +18,14 @@ def build_personal_plan(person: sqlite3.Row, tasks: list[sqlite3.Row]) -> str:
     for task in tasks:
         lines.append(format_task_line(task))
 
+    example_id = tasks[0]["id"]
     lines.extend(
         [
             "",
             "Reponds pendant la journee avec:",
-            "/done PIO-001 proof: ...",
-            "/blocked PIO-001 reason: ...",
-            "/notdone PIO-001 reason: ...",
+            f"/done {example_id} proof: ...",
+            f"/blocked {example_id} reason: ...",
+            f"/notdone {example_id} reason: ...",
         ]
     )
     return "\n".join(lines)
@@ -36,13 +37,14 @@ def build_evening_checkin(person: sqlite3.Row, tasks: list[sqlite3.Row]) -> str:
 
     lines = [f"Check-in du soir - {person['name']}", "", "Taches encore ouvertes:"]
     lines.extend(format_task_line(task) for task in tasks)
+    example_id = tasks[0]["id"]
     lines.extend(
         [
             "",
             "Marque chaque tache:",
-            "/done ID proof: ...",
-            "/blocked ID reason: ...",
-            "/notdone ID reason: ...",
+            f"/done {example_id} proof: ...",
+            f"/blocked {example_id} reason: ...",
+            f"/notdone {example_id} reason: ...",
         ]
     )
     return "\n".join(lines)
@@ -74,4 +76,3 @@ def load_sop_text(repo_root: Path, sop_path: str | None) -> str | None:
     if len(text) > 3500:
         return text[:3500] + "\n\n[truncated]"
     return text
-

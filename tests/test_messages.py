@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from productif_ops_bot.db import init_db
-from productif_ops_bot.messages import build_personal_plan, build_recap
+from productif_ops_bot.messages import build_evening_checkin, build_personal_plan, build_recap
 from productif_ops_bot.bot import _parse_key_value_command
 from productif_ops_bot.tasks import create_task, list_tasks_for_person, recap_counts, seed_people, seed_sample_tasks
 
@@ -28,6 +28,12 @@ class MessageTests(unittest.TestCase):
         text = build_personal_plan(person, tasks)
         self.assertIn("PIO-001", text)
         self.assertIn("/done PIO-001", text)
+
+    def test_evening_checkin_uses_first_open_task_id(self):
+        person = self.conn.execute("SELECT * FROM people WHERE id = 'noah'").fetchone()
+        tasks = list_tasks_for_person(self.conn, "noah")
+        text = build_evening_checkin(person, tasks)
+        self.assertIn("/blocked PIO-001", text)
 
     def test_recap_contains_people(self):
         text = build_recap(recap_counts(self.conn))
