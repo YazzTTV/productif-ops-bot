@@ -1,0 +1,10 @@
+<service>
+  <id>ProductifOpsCaddy</id>
+  <name>Productif Ops HTTPS</name>
+  <executable>C:\caddy\caddy.exe</executable>
+  <arguments>run --config C:\caddy\Caddyfile --adapter caddyfile</arguments>
+  <workingdirectory>C:\caddy</workingdirectory>
+  <logpath>C:\productif-ops-bot\logs</logpath>
+  <log mode="roll"/>
+  <onfailure action="restart" delay="5 sec"/>
+</service>

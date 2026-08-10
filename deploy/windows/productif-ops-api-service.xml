@@ -1,0 +1,14 @@
+<service>
+  <id>ProductifOpsApi</id>
+  <name>Productif Ops API</name>
+  <executable>C:\productif-ops-bot\.venv\Scripts\productif-ops-api.exe</executable>
+  <workingdirectory>C:\productif-ops-bot</workingdirectory>
+  <logpath>C:\productif-ops-bot\logs</logpath>
+  <log mode="roll"/>
+  <onfailure action="restart" delay="5 sec"/>
+  <!-- Without this, Python block-buffers stderr as soon as WinSW redirects it to
+       a file, so log lines sit unflushed for kilobytes. The log then looks empty
+       while requests are being served, and a failed Telegram notification or a
+       failed nightly backup leaves no visible trace at all. -->
+  <env name="PYTHONUNBUFFERED" value="1"/>
+</service>
