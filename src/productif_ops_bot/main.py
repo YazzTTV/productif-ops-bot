@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from telegram.ext import Application, ApplicationBuilder
@@ -12,6 +13,7 @@ from .tasks import seed_people, seed_sample_tasks
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     repo_root = Path(__file__).resolve().parents[2]
     config = load_config()
 
@@ -45,6 +47,7 @@ def main() -> None:
     )
     OpsBot(conn, repo_root).register_handlers(application)
 
+    logging.info("Productif Ops Bot running. Press Ctrl+C to stop.")
     application.run_polling()
 
 

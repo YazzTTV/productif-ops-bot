@@ -7,11 +7,18 @@ from pathlib import Path
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-from .messages import build_personal_plan, build_recap, load_sop_text
+from .messages import build_personal_plan, build_recap, build_task_detail, build_task_list, load_sop_text
 from .tasks import (
+    VALID_PEOPLE,
+    VALID_STATUSES,
+    admin_update_task_status,
+    assign_task,
     create_task,
     get_person_by_telegram,
     get_task,
+    get_task_with_owner,
+    list_checkins,
+    list_tasks,
     list_tasks_for_person,
     recap_counts,
     register_telegram_user,
@@ -26,10 +33,15 @@ class OpsBot:
 
     def register_handlers(self, application: Application) -> None:
         application.add_handler(CommandHandler("start", self.start))
+        application.add_handler(CommandHandler("help", self.help))
         application.add_handler(CommandHandler("plan", self.plan))
+        application.add_handler(CommandHandler("tasks", self.tasks))
+        application.add_handler(CommandHandler("task", self.task))
         application.add_handler(CommandHandler("done", self.done))
         application.add_handler(CommandHandler("blocked", self.blocked))
         application.add_handler(CommandHandler("notdone", self.notdone))
+        application.add_handler(CommandHandler("setstatus", self.setstatus))
+        application.add_handler(CommandHandler("assign", self.assign))
         application.add_handler(CommandHandler("recap", self.recap))
         application.add_handler(CommandHandler("sop", self.sop))
         application.add_handler(CommandHandler("addtask", self.addtask))
@@ -50,6 +62,31 @@ class OpsBot:
 
         await update.message.reply_text(f"Compte Telegram lie a {person_id}. Envoie /plan.")
 
+    async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not update.message:
+            return
+        await update.message.reply_text(
+            "\n".join(
+                [
+                    "Commandes Productif Ops",
+                    "",
+                    "/plan - ton plan ouvert",
+                    "/tasks [open|all|done|blocked|not_done|todo] [noah|gaetan|arthur]",
+                    "/task PIO-001 - detail d'une tache",
+                    "/done PIO-001 proof: ...",
+                    "/blocked PIO-001 reason: ...",
+                    "/notdone PIO-001 reason: ...",
+                    "/sop PIO-001",
+                    "/recap",
+                    "",
+                    "Admin Noah:",
+                    "/addtask owner:noah title:... priority:P0 due:2026-08-13 sop:...",
+                    "/setstatus PIO-001 done proof: ...",
+                    "/assign PIO-001 gaetan",
+                ]
+            )
+        )
+
     async def plan(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         person = self._current_person(update)
         if not person or not update.message:
@@ -59,6 +96,42 @@ class OpsBot:
         tasks = list_tasks_for_person(self.conn, person["id"])
         await update.message.reply_text(build_personal_plan(person, tasks))
 
+    async def tasks(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not update.message:
+            return
+
+        status_filter = "open"
+        owner_id = None
+        for arg in context.args:
+            normalized = arg.lower().strip()
+            if normalized in VALID_PEOPLE:
+                owner_id = normalized
+            else:
+                status_filter = normalized
+
+        rows = list_tasks(self.conn, status_filter=status_filter, owner_id=owner_id)
+        if status_filter not in {"open", "all", *VALID_STATUSES}:
+            await update.message.reply_text("Filtre invalide. Usage: /tasks [open|all|done|blocked|not_done|todo] [owner]")
+            return
+
+        owner_label = f" - {owner_id}" if owner_id else ""
+        await update.message.reply_text(build_task_list(f"Taches {status_filter}{owner_label}", rows))
+
+    async def task(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not update.message:
+            return
+        if not context.args:
+            await update.message.reply_text("Usage: /task PIO-001")
+            return
+
+        task = get_task_with_owner(self.conn, context.args[0].upper().strip())
+        if not task:
+            await update.message.reply_text("Tache introuvable.")
+            return
+
+        checkins = list_checkins(self.conn, task["id"])
+        await update.message.reply_text(build_task_detail(task, checkins))
+
     async def done(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self._set_status(update, "done")
 
@@ -67,6 +140,56 @@ class OpsBot:
 
     async def notdone(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self._set_status(update, "not_done")
+
+    async def setstatus(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        person = self._current_person(update)
+        if not person or not update.message:
+            await self._reply_unregistered(update)
+            return
+        if not self._is_admin(person):
+            await update.message.reply_text("Commande reservee a Noah pour le MVP.")
+            return
+
+        parsed = _parse_admin_status_command(update.message.text or "")
+        if not parsed:
+            await update.message.reply_text("Usage: /setstatus PIO-001 done proof: ...")
+            return
+
+        task_id, status, message = parsed
+        ok = admin_update_task_status(
+            self.conn,
+            task_id=task_id,
+            person_id=person["id"],
+            status=status,
+            message=message,
+            proof=message if status == "done" else "",
+        )
+        if not ok:
+            await update.message.reply_text("Statut invalide ou tache introuvable.")
+            return
+
+        await update.message.reply_text(f"{task_id} -> {status}.")
+
+    async def assign(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        person = self._current_person(update)
+        if not person or not update.message:
+            await self._reply_unregistered(update)
+            return
+        if not self._is_admin(person):
+            await update.message.reply_text("Commande reservee a Noah pour le MVP.")
+            return
+        if len(context.args) < 2:
+            await update.message.reply_text("Usage: /assign PIO-001 gaetan")
+            return
+
+        task_id = context.args[0].upper().strip()
+        owner_id = context.args[1].lower().strip()
+        ok = assign_task(self.conn, task_id=task_id, owner_id=owner_id)
+        if not ok:
+            await update.message.reply_text("Tache introuvable ou owner invalide.")
+            return
+
+        await update.message.reply_text(f"{task_id} assignee a {owner_id}.")
 
     async def recap(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
@@ -98,7 +221,7 @@ class OpsBot:
             await self._reply_unregistered(update)
             return
 
-        if person["id"] != "noah":
+        if not self._is_admin(person):
             await update.message.reply_text("Commande reservee a Noah pour le MVP.")
             return
 
@@ -169,6 +292,9 @@ class OpsBot:
             return None
         return get_person_by_telegram(self.conn, update.effective_user.id)
 
+    def _is_admin(self, person: sqlite3.Row) -> bool:
+        return person["id"] == "noah"
+
     async def _reply_unregistered(self, update: Update) -> None:
         if update.message:
             await update.message.reply_text("Compte non lie. Envoie /start noah, /start gaetan ou /start arthur.")
@@ -179,6 +305,13 @@ def _parse_status_command(text: str) -> tuple[str, str] | None:
     if not match:
         return None
     return match.group(1).upper(), match.group(2).strip()
+
+
+def _parse_admin_status_command(text: str) -> tuple[str, str, str] | None:
+    match = re.match(r"^/\w+\s+([A-Za-z0-9-]+)\s+(\w+)\s*(.*)$", text.strip(), flags=re.DOTALL)
+    if not match:
+        return None
+    return match.group(1).upper(), match.group(2).lower(), match.group(3).strip()
 
 
 def _parse_key_value_command(text: str) -> dict[str, str]:
@@ -202,7 +335,10 @@ def _next_task_id(conn: sqlite3.Connection, owner_id: str) -> str:
         "arthur": "PIO-A",
     }
     prefix = prefixes.get(owner_id, "PIO")
-    rows = conn.execute("SELECT id FROM tasks WHERE id LIKE ?", (f"{prefix}-%",)).fetchall()
+    rows = conn.execute(
+        "SELECT id FROM tasks WHERE owner_id = ? AND id LIKE ?",
+        (owner_id, f"{prefix}-%"),
+    ).fetchall()
     max_number = 0
     for row in rows:
         match = re.match(rf"^{re.escape(prefix)}-(\d+)$", row["id"])

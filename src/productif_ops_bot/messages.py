@@ -5,9 +5,11 @@ from pathlib import Path
 
 
 def format_task_line(task: sqlite3.Row) -> str:
+    owner = f" @{task['owner_name']}" if "owner_name" in task.keys() else ""
+    status = f" ({task['status']})" if "status" in task.keys() else ""
     sop = f" | SOP: {task['sop_path']}" if task["sop_path"] else ""
     proof = " | proof required" if task["proof_required"] else ""
-    return f"- {task['id']} [{task['priority']}] {task['title']}{sop}{proof}"
+    return f"- {task['id']} [{task['priority']}]{owner}{status} {task['title']}{sop}{proof}"
 
 
 def build_personal_plan(person: sqlite3.Row, tasks: list[sqlite3.Row]) -> str:
@@ -64,6 +66,41 @@ def build_recap(rows: list[sqlite3.Row]) -> str:
             ]
         )
     return "\n".join(lines).strip()
+
+
+def build_task_list(title: str, tasks: list[sqlite3.Row]) -> str:
+    if not tasks:
+        return f"{title}\n\nAucune tache."
+
+    lines = [title, ""]
+    lines.extend(format_task_line(task) for task in tasks)
+    return "\n".join(lines)
+
+
+def build_task_detail(task: sqlite3.Row, checkins: list[sqlite3.Row]) -> str:
+    lines = [
+        f"{task['id']} - {task['title']}",
+        "",
+        f"Owner: {task['owner_name']}",
+        f"Priority: {task['priority']}",
+        f"Status: {task['status']}",
+        f"Due: {task['due_date']}",
+    ]
+    if task["sop_path"]:
+        lines.append(f"SOP: {task['sop_path']}")
+    if task["description"]:
+        lines.extend(["", task["description"]])
+
+    lines.append("")
+    lines.append("Derniers check-ins:")
+    if not checkins:
+        lines.append("- Aucun")
+    else:
+        for checkin in checkins:
+            message = f" - {checkin['message']}" if checkin["message"] else ""
+            lines.append(f"- {checkin['created_at']} {checkin['person_name']} -> {checkin['status']}{message}")
+
+    return "\n".join(lines)
 
 
 def load_sop_text(repo_root: Path, sop_path: str | None) -> str | None:

@@ -9,9 +9,13 @@ The bot sends each person a morning plan, lets them mark tasks as done, blocked,
 - Telegram commands:
   - `/start noah`
   - `/plan`
+  - `/tasks open`
+  - `/task PIO-001`
   - `/done PIO-001 proof: screenshot sent`
   - `/blocked PIO-002 reason: no Buffer access`
   - `/notdone PIO-003 reason: no time slot`
+  - `/setstatus PIO-001 done proof: handled by Noah`
+  - `/assign PIO-001 gaetan`
   - `/recap`
   - `/sop PIO-001`
 - SQLite source of truth.
@@ -78,6 +82,21 @@ Valid people in the MVP:
 /plan
 ```
 
+### See team tasks
+
+```text
+/tasks
+/tasks all
+/tasks blocked
+/tasks open gaetan
+```
+
+### See one task
+
+```text
+/task PIO-001
+```
+
 ### Mark done
 
 ```text
@@ -106,6 +125,44 @@ Valid people in the MVP:
 
 ```text
 /sop PIO-001
+```
+
+### Add a task
+
+Noah only in the MVP.
+
+```text
+/addtask owner:noah title:Soumettre TestFlight priority:P0 due:2026-08-13 sop:app-store-submit.md proof:true
+```
+
+Required fields:
+
+- `owner`
+- `title`
+- `priority`
+- `due`
+
+Optional fields:
+
+- `id`
+- `sop`
+- `description`
+- `proof:true`
+
+### Admin status change
+
+Noah only in the MVP.
+
+```text
+/setstatus PIO-001 done proof: handled manually
+```
+
+### Assign a task
+
+Noah only in the MVP.
+
+```text
+/assign PIO-001 gaetan
 ```
 
 ## Suggested development order

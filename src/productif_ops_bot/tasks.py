@@ -12,6 +12,7 @@ VALID_PEOPLE = {
 
 VALID_STATUSES = {"todo", "in_progress", "done", "blocked", "not_done", "cancelled"}
 VALID_PRIORITIES = {"P0", "P1", "P2"}
+OPEN_STATUSES = ("todo", "in_progress", "blocked")
 
 
 def seed_people(conn: sqlite3.Connection) -> None:
@@ -127,7 +128,7 @@ def list_linked_people(conn: sqlite3.Connection) -> Iterable[sqlite3.Row]:
 
 
 def list_tasks_for_person(conn: sqlite3.Connection, person_id: str, only_open: bool = True) -> list[sqlite3.Row]:
-    statuses = ("todo", "in_progress", "blocked") if only_open else tuple(VALID_STATUSES)
+    statuses = OPEN_STATUSES if only_open else tuple(VALID_STATUSES)
     placeholders = ",".join("?" for _ in statuses)
     return conn.execute(
         f"""
@@ -142,22 +143,76 @@ def list_tasks_for_person(conn: sqlite3.Connection, person_id: str, only_open: b
     ).fetchall()
 
 
+def list_tasks(
+    conn: sqlite3.Connection,
+    status_filter: str = "open",
+    owner_id: str | None = None,
+) -> list[sqlite3.Row]:
+    statuses = _statuses_for_filter(status_filter)
+    if statuses is None:
+        return []
+
+    status_clause = ""
+    params: list[str] = []
+    if statuses:
+        placeholders = ",".join("?" for _ in statuses)
+        status_clause = f"AND tasks.status IN ({placeholders})"
+        params.extend(statuses)
+
+    owner_clause = ""
+    if owner_id:
+        owner_clause = "AND tasks.owner_id = ?"
+        params.append(owner_id)
+
+    return conn.execute(
+        f"""
+        SELECT tasks.*, people.name AS owner_name
+        FROM tasks
+        JOIN people ON people.id = tasks.owner_id
+        WHERE 1 = 1
+        {status_clause}
+        {owner_clause}
+        ORDER BY
+            CASE tasks.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 ELSE 2 END,
+            tasks.due_date ASC,
+            tasks.id ASC
+        """,
+        tuple(params),
+    ).fetchall()
+
+
 def list_all_tasks(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return list_tasks(conn, status_filter="all")
+
+
+def get_task(conn: sqlite3.Connection, task_id: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+
+
+def get_task_with_owner(conn: sqlite3.Connection, task_id: str) -> sqlite3.Row | None:
     return conn.execute(
         """
         SELECT tasks.*, people.name AS owner_name
         FROM tasks
         JOIN people ON people.id = tasks.owner_id
-        ORDER BY
-            CASE tasks.priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 ELSE 2 END,
-            tasks.due_date ASC,
-            tasks.id ASC
+        WHERE tasks.id = ?
+        """,
+        (task_id,),
+    ).fetchone()
+
+
+def list_checkins(conn: sqlite3.Connection, task_id: str, limit: int = 5) -> list[sqlite3.Row]:
+    return conn.execute(
         """
+        SELECT checkins.*, people.name AS person_name
+        FROM checkins
+        JOIN people ON people.id = checkins.person_id
+        WHERE checkins.task_id = ?
+        ORDER BY checkins.created_at DESC
+        LIMIT ?
+        """,
+        (task_id, limit),
     ).fetchall()
-
-
-def get_task(conn: sqlite3.Connection, task_id: str) -> sqlite3.Row | None:
-    return conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
 
 
 def create_task(
@@ -232,6 +287,56 @@ def update_task_status(
     return True
 
 
+def admin_update_task_status(
+    conn: sqlite3.Connection,
+    task_id: str,
+    person_id: str,
+    status: str,
+    message: str,
+    proof: str = "",
+) -> bool:
+    if status not in VALID_STATUSES:
+        return False
+
+    task = get_task(conn, task_id)
+    if not task:
+        return False
+
+    conn.execute(
+        """
+        UPDATE tasks
+        SET status = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        (status, task_id),
+    )
+    conn.execute(
+        """
+        INSERT INTO checkins (task_id, person_id, status, message, proof)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (task_id, person_id, status, message, proof),
+    )
+    conn.commit()
+    return True
+
+
+def assign_task(conn: sqlite3.Connection, task_id: str, owner_id: str) -> bool:
+    if owner_id not in VALID_PEOPLE or not get_task(conn, task_id):
+        return False
+
+    conn.execute(
+        """
+        UPDATE tasks
+        SET owner_id = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        (owner_id, task_id),
+    )
+    conn.commit()
+    return True
+
+
 def recap_counts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
         """
@@ -249,3 +354,14 @@ def recap_counts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         ORDER BY people.id
         """
     ).fetchall()
+
+
+def _statuses_for_filter(status_filter: str) -> tuple[str, ...] | None:
+    normalized = status_filter.lower().strip()
+    if normalized == "all":
+        return ()
+    if normalized == "open":
+        return OPEN_STATUSES
+    if normalized in VALID_STATUSES:
+        return (normalized,)
+    return None
