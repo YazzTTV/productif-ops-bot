@@ -245,14 +245,8 @@ The repo includes the shareable `sync-productif-ops` skill. Every associate can 
 
 The teammate never receives the Telegram bot token. Each person gets a revocable API token. The shared plan stays visible to everyone, while every write is attributed and limited to tasks assigned to that identity; reassign a task first when ownership changes.
 
-Start the API locally in a second terminal:
-
-```bash
-source .venv/bin/activate
-productif-ops-api
-```
-
-Create one token per teammate. The raw value is displayed once:
+Create one token per teammate, on the machine that runs the API. The raw value
+is displayed once, so send it privately and never paste it in a group chat:
 
 ```bash
 productif-ops-token create gaetan --label gaetan-macbook
@@ -260,30 +254,41 @@ productif-ops-token create arthur --label arthur-macbook
 productif-ops-token list
 ```
 
-Install the skill on a teammate's Mac:
+Install the skill on a teammate's Mac. The team uses **Cowork / Claude Code**,
+so the personal skills directory is `~/.claude/skills`, and the app has to be
+restarted afterwards for the skill to appear:
 
 ```bash
-mkdir -p ~/.codex/skills
-cp -R skills/sync-productif-ops ~/.codex/skills/
+mkdir -p ~/.claude/skills
+cp -R skills/sync-productif-ops ~/.claude/skills/
 ```
 
-Restart Codex, then configure the skill. The token prompt is hidden:
+If they have a clone of this repo, a symlink is better than a copy: `git pull`
+then updates the skill in place instead of leaving a stale copy behind.
 
 ```bash
-python3 ~/.codex/skills/sync-productif-ops/scripts/productif_ops_sync.py \
-  configure --api-url https://ops.example.com --person gaetan
+ln -s "$PWD/skills/sync-productif-ops" ~/.claude/skills/sync-productif-ops
 ```
 
-They can then ask Cowork to use `$sync-productif-ops`, or run the client directly:
+Then configure it. The token prompt is hidden, and credentials land in
+`~/.config/productif-ops/config.json` with mode `0600`:
 
 ```bash
-python3 ~/.codex/skills/sync-productif-ops/scripts/productif_ops_sync.py plan
+python3 ~/.claude/skills/sync-productif-ops/scripts/productif_ops_sync.py \
+  configure --api-url https://ops.productif.io --person gaetan
 ```
 
-Every submission is a dry run unless `--confirm` is present. The skill must show the proposed updates and obtain explicit approval before rerunning with `--confirm`.
+Check it without revealing the token, then read the plan:
 
-### VPS API
+```bash
+python3 ~/.claude/skills/sync-productif-ops/scripts/productif_ops_sync.py status
+python3 ~/.claude/skills/sync-productif-ops/scripts/productif_ops_sync.py plan
+```
 
-Run the Telegram bot and API as separate systemd services using the templates in `deploy/systemd/`. Keep `OPS_API_HOST=127.0.0.1`; expose it through HTTPS with Caddy or another reverse proxy. `deploy/Caddyfile.example` contains the minimal Caddy route.
+From there they just ask Cowork for their Productif plan, or to sync at the end
+of a session. Every submission is a dry run unless `--confirm` is present: the
+skill must show the proposed updates and get explicit approval before rerunning
+with `--confirm`.
 
-After the public HTTPS health check works, generate Gaetan and Arthur's tokens on the VPS. Send each token privately and never commit it or paste it in a shared chat.
+Codex users install into `~/.codex/skills` instead; the skill itself is
+identical and carries the extra `agents/openai.yaml` that Claude Code ignores.
