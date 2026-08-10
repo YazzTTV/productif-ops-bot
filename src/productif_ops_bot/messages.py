@@ -7,9 +7,10 @@ from pathlib import Path
 def format_task_line(task: sqlite3.Row) -> str:
     owner = f" @{task['owner_name']}" if "owner_name" in task.keys() else ""
     status = f" ({task['status']})" if "status" in task.keys() else ""
+    category = f" #{task['category']}" if "category" in task.keys() and task["category"] else ""
     sop = f" | SOP: {task['sop_path']}" if task["sop_path"] else ""
     proof = " | proof required" if task["proof_required"] else ""
-    return f"- {task['id']} [{task['priority']}]{owner}{status} {task['title']}{sop}{proof}"
+    return f"- {task['id']} [{task['priority']}]{owner}{status}{category} {task['title']}{sop}{proof}"
 
 
 def build_personal_plan(person: sqlite3.Row, tasks: list[sqlite3.Row]) -> str:
@@ -88,6 +89,12 @@ def build_task_detail(task: sqlite3.Row, checkins: list[sqlite3.Row]) -> str:
     ]
     if task["sop_path"]:
         lines.append(f"SOP: {task['sop_path']}")
+    if "category" in task.keys() and task["category"]:
+        lines.append(f"Category: {task['category']}")
+    if "source" in task.keys() and task["source"]:
+        lines.append(f"Source: {task['source']}")
+    if "source_path" in task.keys() and task["source_path"]:
+        lines.append(f"Source path: {task['source_path']}")
     if task["description"]:
         lines.extend(["", task["description"]])
 

@@ -34,6 +34,9 @@ def init_db(conn: sqlite3.Connection) -> None:
             status TEXT NOT NULL DEFAULT 'todo',
             due_date TEXT NOT NULL,
             sop_path TEXT,
+            category TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT '',
+            source_path TEXT NOT NULL DEFAULT '',
             proof_required INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -50,5 +53,13 @@ def init_db(conn: sqlite3.Connection) -> None:
         );
         """
     )
+    _add_missing_column(conn, "tasks", "category", "TEXT NOT NULL DEFAULT ''")
+    _add_missing_column(conn, "tasks", "source", "TEXT NOT NULL DEFAULT ''")
+    _add_missing_column(conn, "tasks", "source_path", "TEXT NOT NULL DEFAULT ''")
     conn.commit()
 
+
+def _add_missing_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")

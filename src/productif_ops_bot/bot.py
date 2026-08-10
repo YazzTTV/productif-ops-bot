@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from datetime import date
 from pathlib import Path
 
 from telegram import Update
@@ -18,6 +19,7 @@ from .tasks import (
     get_task,
     get_task_with_owner,
     list_checkins,
+    list_due_tasks_for_person,
     list_tasks,
     list_tasks_for_person,
     recap_counts,
@@ -93,7 +95,7 @@ class OpsBot:
             await self._reply_unregistered(update)
             return
 
-        tasks = list_tasks_for_person(self.conn, person["id"])
+        tasks = list_due_tasks_for_person(self.conn, person["id"], date.today().isoformat())
         await update.message.reply_text(build_personal_plan(person, tasks))
 
     async def tasks(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

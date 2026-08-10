@@ -82,6 +82,8 @@ Valid people in the MVP:
 /plan
 ```
 
+`/plan` shows open tasks due today or overdue. Use `/tasks` for the full backlog.
+
 ### See team tasks
 
 ```text
@@ -173,6 +175,22 @@ Noah only in the MVP.
 4. Deploy to VPS with systemd.
 5. Add Gaetan and Arthur.
 6. Add AI plan generation.
+
+## Load the real productif.io plan
+
+The repo includes a curated seed built from the productif.io vault and weekly recap.
+
+```bash
+productif-ops-import-plan
+```
+
+It loads tasks from:
+
+```text
+seeds/productif_plan_2026_08_10.json
+```
+
+By default, this seed archives old open sample tasks that are not part of the real plan. Existing seed tasks keep their current status when reimported, so rerunning the import does not reset work already marked done or blocked.
 
 ## VPS deployment later
 

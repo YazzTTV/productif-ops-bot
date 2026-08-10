@@ -143,6 +143,23 @@ def list_tasks_for_person(conn: sqlite3.Connection, person_id: str, only_open: b
     ).fetchall()
 
 
+def list_due_tasks_for_person(conn: sqlite3.Connection, person_id: str, due_on_or_before: str) -> list[sqlite3.Row]:
+    placeholders = ",".join("?" for _ in OPEN_STATUSES)
+    return conn.execute(
+        f"""
+        SELECT * FROM tasks
+        WHERE owner_id = ?
+          AND status IN ({placeholders})
+          AND due_date <= ?
+        ORDER BY
+            due_date ASC,
+            CASE priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 ELSE 2 END,
+            id ASC
+        """,
+        (person_id, *OPEN_STATUSES, due_on_or_before),
+    ).fetchall()
+
+
 def list_tasks(
     conn: sqlite3.Connection,
     status_filter: str = "open",
@@ -225,6 +242,9 @@ def create_task(
     sop_path: str | None = None,
     description: str = "",
     proof_required: bool = False,
+    category: str = "",
+    source: str = "",
+    source_path: str = "",
 ) -> bool:
     if owner_id not in VALID_PEOPLE or priority not in VALID_PRIORITIES:
         return False
@@ -234,9 +254,10 @@ def create_task(
     conn.execute(
         """
         INSERT INTO tasks (
-            id, title, description, owner_id, priority, due_date, sop_path, proof_required
+            id, title, description, owner_id, priority, due_date, sop_path,
+            category, source, source_path, proof_required
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             task_id,
@@ -246,6 +267,66 @@ def create_task(
             priority,
             due_date,
             sop_path,
+            category,
+            source,
+            source_path,
+            int(proof_required),
+        ),
+    )
+    conn.commit()
+    return True
+
+
+def upsert_task(
+    conn: sqlite3.Connection,
+    task_id: str,
+    title: str,
+    owner_id: str,
+    priority: str,
+    due_date: str,
+    sop_path: str | None = None,
+    description: str = "",
+    proof_required: bool = False,
+    category: str = "",
+    source: str = "",
+    source_path: str = "",
+    status: str = "todo",
+) -> bool:
+    if owner_id not in VALID_PEOPLE or priority not in VALID_PRIORITIES or status not in VALID_STATUSES:
+        return False
+
+    conn.execute(
+        """
+        INSERT INTO tasks (
+            id, title, description, owner_id, priority, status, due_date, sop_path,
+            category, source, source_path, proof_required
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            title = excluded.title,
+            description = excluded.description,
+            owner_id = excluded.owner_id,
+            priority = excluded.priority,
+            due_date = excluded.due_date,
+            sop_path = excluded.sop_path,
+            category = excluded.category,
+            source = excluded.source,
+            source_path = excluded.source_path,
+            proof_required = excluded.proof_required,
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (
+            task_id,
+            title,
+            description,
+            owner_id,
+            priority,
+            status,
+            due_date,
+            sop_path,
+            category,
+            source,
+            source_path,
             int(proof_required),
         ),
     )

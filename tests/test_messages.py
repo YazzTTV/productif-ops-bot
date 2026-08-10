@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from productif_ops_bot.db import init_db
+from productif_ops_bot.import_plan import import_plan
 from productif_ops_bot.messages import build_evening_checkin, build_personal_plan, build_recap
 from productif_ops_bot.bot import _next_task_id, _parse_admin_status_command, _parse_key_value_command
 from productif_ops_bot.messages import build_task_detail, build_task_list
@@ -16,6 +17,7 @@ from productif_ops_bot.tasks import (
     get_task,
     get_task_with_owner,
     list_checkins,
+    list_due_tasks_for_person,
     list_tasks,
     list_tasks_for_person,
     recap_counts,
@@ -124,6 +126,26 @@ class MessageTests(unittest.TestCase):
 
     def test_next_task_id_filters_by_owner(self):
         self.assertEqual(_next_task_id(self.conn, "gaetan"), "PIO-G-001")
+
+    def test_import_productif_plan(self):
+        seed_path = Path(__file__).resolve().parents[1] / "seeds" / "productif_plan_2026_08_10.json"
+        result = import_plan(self.conn, seed_path, archive_existing_open_tasks=True)
+        self.assertGreater(result["imported"], 20)
+        self.assertGreater(result["archived"], 0)
+        app_task = get_task(self.conn, "APP-001")
+        self.assertEqual(app_task["owner_id"], "noah")
+        self.assertEqual(app_task["category"], "appstore")
+        sample_task = get_task(self.conn, "PIO-002")
+        self.assertEqual(sample_task["status"], "cancelled")
+
+    def test_due_tasks_only_include_today_or_overdue(self):
+        seed_path = Path(__file__).resolve().parents[1] / "seeds" / "productif_plan_2026_08_10.json"
+        import_plan(self.conn, seed_path, archive_existing_open_tasks=True)
+        tasks = list_due_tasks_for_person(self.conn, "noah", "2026-08-10")
+        task_ids = {task["id"] for task in tasks}
+        self.assertIn("APP-001", task_ids)
+        self.assertIn("DEV-001", task_ids)
+        self.assertNotIn("APP-003", task_ids)
 
 
 if __name__ == "__main__":

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import date
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from telegram.ext import Application
 
 from .messages import build_evening_checkin, build_personal_plan, build_recap
-from .tasks import list_linked_people, list_tasks_for_person, recap_counts
+from .tasks import list_due_tasks_for_person, list_linked_people, list_tasks_for_person, recap_counts
 
 
 def configure_scheduler(
@@ -44,7 +45,7 @@ def configure_scheduler(
 
 async def send_morning_plans(application: Application, conn: sqlite3.Connection) -> None:
     for person in list_linked_people(conn):
-        tasks = list_tasks_for_person(conn, person["id"])
+        tasks = list_due_tasks_for_person(conn, person["id"], date.today().isoformat())
         await application.bot.send_message(
             chat_id=person["telegram_user_id"],
             text=build_personal_plan(person, tasks),
@@ -53,7 +54,7 @@ async def send_morning_plans(application: Application, conn: sqlite3.Connection)
 
 async def send_evening_checkins(application: Application, conn: sqlite3.Connection) -> None:
     for person in list_linked_people(conn):
-        tasks = list_tasks_for_person(conn, person["id"])
+        tasks = list_due_tasks_for_person(conn, person["id"], date.today().isoformat())
         await application.bot.send_message(
             chat_id=person["telegram_user_id"],
             text=build_evening_checkin(person, tasks),
@@ -70,4 +71,3 @@ async def send_admin_recap(
     text = build_recap(recap_counts(conn))
     for telegram_id in admin_telegram_ids:
         await application.bot.send_message(chat_id=telegram_id, text=text)
-
