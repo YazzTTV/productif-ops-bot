@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import date
 from typing import Iterable
@@ -13,6 +14,11 @@ VALID_PEOPLE = {
 VALID_STATUSES = {"todo", "in_progress", "done", "blocked", "not_done", "cancelled"}
 VALID_PRIORITIES = {"P0", "P1", "P2"}
 OPEN_STATUSES = ("todo", "in_progress", "blocked")
+SYNC_STATUSES = {"in_progress", "done", "blocked", "not_done"}
+
+
+class CheckinValidationError(ValueError):
+    pass
 
 
 def seed_people(conn: sqlite3.Connection) -> None:
@@ -366,6 +372,94 @@ def update_task_status(
     )
     conn.commit()
     return True
+
+
+def apply_checkin_batch(
+    conn: sqlite3.Connection,
+    person_id: str,
+    updates: list[dict[str, object]],
+    summary: str = "",
+    workspace: dict[str, object] | None = None,
+) -> dict[str, object]:
+    if not updates:
+        raise CheckinValidationError("At least one task update is required.")
+    if len(updates) > 25:
+        raise CheckinValidationError("A sync can update at most 25 tasks.")
+    if len(summary) > 2000:
+        raise CheckinValidationError("The session summary is too long.")
+
+    workspace_json = json.dumps(workspace or {}, ensure_ascii=False, separators=(",", ":"))
+    if len(workspace_json) > 12000:
+        raise CheckinValidationError("Workspace evidence is too large.")
+
+    validated: list[tuple[sqlite3.Row, str, str, str]] = []
+    seen_task_ids: set[str] = set()
+    for raw_update in updates:
+        if not isinstance(raw_update, dict):
+            raise CheckinValidationError("Each update must be an object.")
+
+        task_id = str(raw_update.get("task_id", "")).upper().strip()
+        status = str(raw_update.get("status", "")).lower().strip()
+        message = str(raw_update.get("message", "")).strip()
+        proof = str(raw_update.get("proof", "")).strip()
+
+        if not task_id or task_id in seen_task_ids:
+            raise CheckinValidationError(f"Missing or duplicate task id: {task_id or '(empty)'}")
+        if status not in SYNC_STATUSES:
+            raise CheckinValidationError(f"Invalid status for {task_id}: {status}")
+        if len(message) > 2000 or len(proof) > 2000:
+            raise CheckinValidationError(f"Message or proof is too long for {task_id}.")
+
+        task = get_task(conn, task_id)
+        if not task or task["owner_id"] != person_id:
+            raise CheckinValidationError(f"Task {task_id} is not assigned to {person_id}.")
+        if status == "done" and task["proof_required"] and not proof:
+            raise CheckinValidationError(f"Task {task_id} requires proof before it can be done.")
+        if status in {"blocked", "not_done"} and not message:
+            raise CheckinValidationError(f"Task {task_id} requires a reason for status {status}.")
+
+        seen_task_ids.add(task_id)
+        validated.append((task, status, message, proof))
+
+    with conn:
+        sync_run_cursor = conn.execute(
+            """
+            INSERT INTO sync_runs (person_id, summary, workspace_json)
+            VALUES (?, ?, ?)
+            """,
+            (person_id, summary.strip(), workspace_json),
+        )
+        sync_run_id = int(sync_run_cursor.lastrowid)
+        for task, status, message, proof in validated:
+            conn.execute(
+                """
+                UPDATE tasks
+                SET status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (status, task["id"]),
+            )
+            conn.execute(
+                """
+                INSERT INTO checkins (task_id, person_id, status, message, proof, sync_run_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (task["id"], person_id, status, message, proof, sync_run_id),
+            )
+
+    return {
+        "sync_run_id": sync_run_id,
+        "updates": [
+            {
+                "task_id": task["id"],
+                "title": task["title"],
+                "status": status,
+                "message": message,
+                "proof": proof,
+            }
+            for task, status, message, proof in validated
+        ],
+    }
 
 
 def admin_update_task_status(

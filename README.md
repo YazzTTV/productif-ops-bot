@@ -206,3 +206,52 @@ The AI worker should read:
 - productif.io roadmap context.
 
 It should output a proposed plan for tomorrow. It should not send Telegram messages directly or deploy productif.io.
+
+## Cowork folder sync
+
+The repo includes the shareable `sync-productif-ops` skill. Every associate can read the shared team plan, priorities, ownership and SOPs. At the end of a work session, each teammate sends approved statuses and compact workspace evidence for their assigned tasks.
+
+The teammate never receives the Telegram bot token. Each person gets a revocable API token. The shared plan stays visible to everyone, while every write is attributed and limited to tasks assigned to that identity; reassign a task first when ownership changes.
+
+Start the API locally in a second terminal:
+
+```bash
+source .venv/bin/activate
+productif-ops-api
+```
+
+Create one token per teammate. The raw value is displayed once:
+
+```bash
+productif-ops-token create gaetan --label gaetan-macbook
+productif-ops-token create arthur --label arthur-macbook
+productif-ops-token list
+```
+
+Install the skill on a teammate's Mac:
+
+```bash
+mkdir -p ~/.codex/skills
+cp -R skills/sync-productif-ops ~/.codex/skills/
+```
+
+Restart Codex, then configure the skill. The token prompt is hidden:
+
+```bash
+python3 ~/.codex/skills/sync-productif-ops/scripts/productif_ops_sync.py \
+  configure --api-url https://ops.example.com --person gaetan
+```
+
+They can then ask Cowork to use `$sync-productif-ops`, or run the client directly:
+
+```bash
+python3 ~/.codex/skills/sync-productif-ops/scripts/productif_ops_sync.py plan
+```
+
+Every submission is a dry run unless `--confirm` is present. The skill must show the proposed updates and obtain explicit approval before rerunning with `--confirm`.
+
+### VPS API
+
+Run the Telegram bot and API as separate systemd services using the templates in `deploy/systemd/`. Keep `OPS_API_HOST=127.0.0.1`; expose it through HTTPS with Caddy or another reverse proxy. `deploy/Caddyfile.example` contains the minimal Caddy route.
+
+After the public HTTPS health check works, generate Gaetan and Arthur's tokens on the VPS. Send each token privately and never commit it or paste it in a shared chat.

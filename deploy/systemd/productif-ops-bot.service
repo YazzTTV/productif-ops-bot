@@ -1,0 +1,19 @@
+[Unit]
+Description=Productif Ops Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=productif
+Group=productif
+WorkingDirectory=/opt/productif-ops-bot
+EnvironmentFile=/opt/productif-ops-bot/.env
+ExecStart=/opt/productif-ops-bot/.venv/bin/productif-ops-bot
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

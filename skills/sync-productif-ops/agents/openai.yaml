@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sync Productif Ops"
+  short_description: "Synchronise le travail avec le bot Telegram"
+  default_prompt: "Utilise $sync-productif-ops pour analyser mon travail et synchroniser mes taches Productif Ops."

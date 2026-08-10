@@ -16,6 +16,8 @@ dependencies = [
 [project.scripts]
 productif-ops-bot = "productif_ops_bot.main:main"
 productif-ops-import-plan = "productif_ops_bot.import_plan:main"
+productif-ops-api = "productif_ops_bot.api:main"
+productif-ops-token = "productif_ops_bot.token_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

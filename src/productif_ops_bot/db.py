@@ -6,9 +6,11 @@ from pathlib import Path
 
 def connect(database_path: Path) -> sqlite3.Connection:
     database_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(database_path)
+    conn = sqlite3.connect(database_path, timeout=5.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 
@@ -51,11 +53,33 @@ def init_db(conn: sqlite3.Connection) -> None:
             proof TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS api_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            person_id TEXT NOT NULL REFERENCES people(id),
+            token_hash TEXT NOT NULL UNIQUE,
+            label TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_used_at TEXT,
+            revoked_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_api_tokens_person_id
+        ON api_tokens(person_id);
+
+        CREATE TABLE IF NOT EXISTS sync_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            person_id TEXT NOT NULL REFERENCES people(id),
+            summary TEXT NOT NULL DEFAULT '',
+            workspace_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         """
     )
     _add_missing_column(conn, "tasks", "category", "TEXT NOT NULL DEFAULT ''")
     _add_missing_column(conn, "tasks", "source", "TEXT NOT NULL DEFAULT ''")
     _add_missing_column(conn, "tasks", "source_path", "TEXT NOT NULL DEFAULT ''")
+    _add_missing_column(conn, "checkins", "sync_run_id", "INTEGER REFERENCES sync_runs(id)")
     conn.commit()
 
 

@@ -16,6 +16,15 @@ class Config:
     seed_sample_data: bool
 
 
+@dataclass(frozen=True)
+class ApiConfig:
+    database_path: Path
+    host: str
+    port: int
+    telegram_bot_token: str
+    admin_telegram_ids: tuple[int, ...]
+
+
 def _parse_admin_ids(value: str) -> tuple[int, ...]:
     if not value.strip():
         return ()
@@ -42,3 +51,18 @@ def load_config() -> Config:
         seed_sample_data=os.getenv("SEED_SAMPLE_DATA", "true").lower() in {"1", "true", "yes"},
     )
 
+
+def load_api_config() -> ApiConfig:
+    load_dotenv()
+    return ApiConfig(
+        database_path=Path(os.getenv("DATABASE_PATH", "data/productif_ops.sqlite")),
+        host=os.getenv("OPS_API_HOST", "127.0.0.1").strip(),
+        port=int(os.getenv("OPS_API_PORT", "8787")),
+        telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", "").strip(),
+        admin_telegram_ids=_parse_admin_ids(os.getenv("ADMIN_TELEGRAM_IDS", "")),
+    )
+
+
+def load_database_path() -> Path:
+    load_dotenv()
+    return Path(os.getenv("DATABASE_PATH", "data/productif_ops.sqlite"))
