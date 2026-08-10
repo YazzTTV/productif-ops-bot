@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from productif_ops_bot.db import init_db
 from productif_ops_bot.import_plan import import_plan
 from productif_ops_bot.messages import build_evening_checkin, build_personal_plan, build_recap
-from productif_ops_bot.bot import _next_task_id, _parse_admin_status_command, _parse_key_value_command
+from productif_ops_bot.bot import _next_task_id, _parse_admin_status_command, _parse_key_value_command, _split_telegram_text
 from productif_ops_bot.messages import build_task_detail, build_task_list
 from productif_ops_bot.tasks import (
     admin_update_task_status,
@@ -146,6 +146,13 @@ class MessageTests(unittest.TestCase):
         self.assertIn("APP-001", task_ids)
         self.assertIn("DEV-001", task_ids)
         self.assertNotIn("APP-003", task_ids)
+
+    def test_split_telegram_text_keeps_chunks_under_limit(self):
+        text = "\n".join(f"line {i} " + ("x" * 100) for i in range(100))
+        chunks = _split_telegram_text(text, limit=1000)
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(len(chunk) <= 1000 for chunk in chunks))
+        self.assertIn("line 0", chunks[0])
 
 
 if __name__ == "__main__":

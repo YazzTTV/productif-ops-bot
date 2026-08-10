@@ -67,7 +67,8 @@ class OpsBot:
     async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
             return
-        await update.message.reply_text(
+        await self._reply_long_text(
+            update,
             "\n".join(
                 [
                     "Commandes Productif Ops",
@@ -86,7 +87,7 @@ class OpsBot:
                     "/setstatus PIO-001 done proof: ...",
                     "/assign PIO-001 gaetan",
                 ]
-            )
+            ),
         )
 
     async def plan(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -96,7 +97,7 @@ class OpsBot:
             return
 
         tasks = list_due_tasks_for_person(self.conn, person["id"], date.today().isoformat())
-        await update.message.reply_text(build_personal_plan(person, tasks))
+        await self._reply_long_text(update, build_personal_plan(person, tasks))
 
     async def tasks(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
@@ -117,7 +118,7 @@ class OpsBot:
             return
 
         owner_label = f" - {owner_id}" if owner_id else ""
-        await update.message.reply_text(build_task_list(f"Taches {status_filter}{owner_label}", rows))
+        await self._reply_long_text(update, build_task_list(f"Taches {status_filter}{owner_label}", rows))
 
     async def task(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
@@ -132,7 +133,7 @@ class OpsBot:
             return
 
         checkins = list_checkins(self.conn, task["id"])
-        await update.message.reply_text(build_task_detail(task, checkins))
+        await self._reply_long_text(update, build_task_detail(task, checkins))
 
     async def done(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self._set_status(update, "done")
@@ -196,7 +197,7 @@ class OpsBot:
     async def recap(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
             return
-        await update.message.reply_text(build_recap(recap_counts(self.conn)))
+        await self._reply_long_text(update, build_recap(recap_counts(self.conn)))
 
     async def sop(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
@@ -215,7 +216,7 @@ class OpsBot:
             await update.message.reply_text("Aucune SOP trouvee pour cette tache.")
             return
 
-        await update.message.reply_text(sop_text)
+        await self._reply_long_text(update, sop_text)
 
     async def addtask(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         person = self._current_person(update)
@@ -301,12 +302,49 @@ class OpsBot:
         if update.message:
             await update.message.reply_text("Compte non lie. Envoie /start noah, /start gaetan ou /start arthur.")
 
+    async def _reply_long_text(self, update: Update, text: str) -> None:
+        if not update.message:
+            return
+        for chunk in _split_telegram_text(text):
+            await update.message.reply_text(chunk)
+
 
 def _parse_status_command(text: str) -> tuple[str, str] | None:
     match = re.match(r"^/\w+\s+([A-Za-z0-9-]+)\s*(.*)$", text.strip(), flags=re.DOTALL)
     if not match:
         return None
     return match.group(1).upper(), match.group(2).strip()
+
+
+def _split_telegram_text(text: str, limit: int = 3900) -> list[str]:
+    if len(text) <= limit:
+        return [text]
+
+    chunks: list[str] = []
+    current: list[str] = []
+    current_length = 0
+
+    for line in text.splitlines():
+        line_length = len(line) + 1
+        if current and current_length + line_length > limit:
+            chunks.append("\n".join(current))
+            current = []
+            current_length = 0
+
+        if line_length > limit:
+            if current:
+                chunks.append("\n".join(current))
+                current = []
+                current_length = 0
+            chunks.extend(line[start : start + limit] for start in range(0, len(line), limit))
+            continue
+
+        current.append(line)
+        current_length += line_length
+
+    if current:
+        chunks.append("\n".join(current))
+    return chunks
 
 
 def _parse_admin_status_command(text: str) -> tuple[str, str, str] | None:
