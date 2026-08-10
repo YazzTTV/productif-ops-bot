@@ -3,13 +3,13 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-import urllib.error
-import urllib.request
 from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable
 from urllib.parse import parse_qs, urlparse
+
+import httpx
 
 from .auth import authenticate_api_token
 from .config import ApiConfig, load_api_config
@@ -152,29 +152,65 @@ class OpsApiService:
         return tuple(dict.fromkeys(recipients))
 
     def _notify(self, text: str, recipients: tuple[int, ...]) -> bool:
+        """Send the sync notification through Telegram.
+
+        This deliberately uses `httpx` rather than `urllib`. `urllib` verifies
+        against the operating system trust store, and on the Windows host that
+        runs this service that store is broken: it fails with "self-signed
+        certificate in certificate chain" on api.telegram.org while the bot,
+        which speaks through httpx and its bundled CA set, works fine. The
+        result was a notification that failed silently on every sync.
+        """
         if not recipients:
             return False
         if self.notifier:
             return self.notifier(text, recipients)
         if not self.telegram_bot_token:
+            LOGGER.error("No Telegram token configured, the sync notification cannot be sent.")
             return False
 
+        url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
         success = True
-        for chat_id in recipients:
-            body = json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8")
-            request = urllib.request.Request(
-                f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage",
-                data=body,
-                headers={"Content-Type": "application/json"},
-                method="POST",
+        try:
+            with httpx.Client(timeout=10) as client:
+                for chat_id in recipients:
+                    try:
+                        response = client.post(url, json={"chat_id": chat_id, "text": text})
+                    except httpx.HTTPError as exc:
+                        # No exc_info: the traceback embeds the request URL, and
+                        # that URL carries the bot token.
+                        LOGGER.error(
+                            "Could not reach Telegram for chat %s: %s: %s",
+                            chat_id,
+                            type(exc).__name__,
+                            self._redact(str(exc)),
+                        )
+                        success = False
+                        continue
+                    if response.status_code != 200:
+                        # The previous version treated any non-200 as a plain
+                        # failure without saying why, which is what made this
+                        # impossible to diagnose from the logs.
+                        LOGGER.error(
+                            "Telegram refused the notification for chat %s: HTTP %s %s",
+                            chat_id,
+                            response.status_code,
+                            self._redact(response.text)[:300],
+                        )
+                        success = False
+        except httpx.HTTPError as exc:
+            LOGGER.error(
+                "Could not open a connection to Telegram: %s: %s",
+                type(exc).__name__,
+                self._redact(str(exc)),
             )
-            try:
-                with urllib.request.urlopen(request, timeout=10) as response:
-                    success = success and response.status == 200
-            except (urllib.error.URLError, TimeoutError):
-                LOGGER.exception("Could not send Telegram sync notification to chat %s", chat_id)
-                success = False
+            return False
         return success
+
+    def _redact(self, message: str) -> str:
+        if self.telegram_bot_token:
+            return message.replace(self.telegram_bot_token, "<token redacted>")
+        return message
 
 
 def _build_sync_notification(

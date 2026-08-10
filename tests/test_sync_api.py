@@ -5,12 +5,14 @@ import sys
 import tempfile
 import threading
 import unittest
+import unittest.mock
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from productif_ops_bot import api as api_module
 from productif_ops_bot.api import ApiError, OpsApiService, make_handler
 from productif_ops_bot.auth import authenticate_api_token, create_api_token, revoke_api_token
 from productif_ops_bot.db import connect, init_db
@@ -65,6 +67,55 @@ class SyncApiTests(unittest.TestCase):
     def _capture_notification(self, text: str, recipients: tuple[int, ...]) -> bool:
         self.notifications.append((text, recipients))
         return True
+
+    def _telegram_service(self) -> OpsApiService:
+        return OpsApiService(
+            database_path=self.database_path,
+            repo_root=self.root,
+            telegram_bot_token="123:SECRET",
+            admin_telegram_ids=(1001,),
+        )
+
+    def test_notification_redacts_the_bot_token(self) -> None:
+        service = self._telegram_service()
+        leaked = "connect error to https://api.telegram.org/bot123:SECRET/sendMessage"
+        self.assertNotIn("123:SECRET", service._redact(leaked))
+        self.assertIn("<token redacted>", service._redact(leaked))
+
+    def test_notification_reports_failure_when_telegram_refuses(self) -> None:
+        service = self._telegram_service()
+        calls: list[dict[str, object]] = []
+
+        class FakeResponse:
+            status_code = 400
+            text = '{"ok":false,"description":"chat not found"}'
+
+        class FakeClient:
+            def __init__(self, **kwargs: object) -> None:
+                pass
+
+            def __enter__(self) -> "FakeClient":
+                return self
+
+            def __exit__(self, *args: object) -> bool:
+                return False
+
+            def post(self, url: str, json: dict[str, object]) -> FakeResponse:
+                calls.append(json)
+                return FakeResponse()
+
+        with unittest.mock.patch.object(api_module.httpx, "Client", FakeClient):
+            with self.assertLogs("productif_ops_bot.api", level="ERROR") as logged:
+                self.assertFalse(service._notify("hello", (1001,)))
+        self.assertEqual(calls, [{"chat_id": 1001, "text": "hello"}])
+        # The reason Telegram gave has to reach the log, otherwise a failed
+        # notification is indistinguishable from a network outage.
+        self.assertIn("chat not found", "\n".join(logged.output))
+
+    def test_notification_without_token_fails_loudly(self) -> None:
+        service = OpsApiService(database_path=self.database_path, repo_root=self.root)
+        with self.assertLogs("productif_ops_bot.api", level="ERROR"):
+            self.assertFalse(service._notify("hello", (1001,)))
 
     def test_token_is_hashed_and_can_be_revoked(self) -> None:
         conn = connect(self.database_path)
