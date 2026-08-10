@@ -1,8 +1,0 @@
-Metadata-Version: 2.4
-Name: productif-ops-bot
-Version: 0.1.0
-Summary: Telegram bot for productif.io daily ops.
-Requires-Python: >=3.11
-Requires-Dist: APScheduler<4,>=3.10
-Requires-Dist: python-dotenv<2,>=1
-Requires-Dist: python-telegram-bot<23,>=21

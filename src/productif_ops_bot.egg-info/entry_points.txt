@@ -1,2 +1,0 @@
-[console_scripts]
-productif-ops-bot = productif_ops_bot.main:main

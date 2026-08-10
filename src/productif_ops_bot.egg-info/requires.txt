@@ -1,3 +1,0 @@
-APScheduler<4,>=3.10
-python-dotenv<2,>=1
-python-telegram-bot<23,>=21
