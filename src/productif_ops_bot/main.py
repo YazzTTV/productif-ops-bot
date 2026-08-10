@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from telegram.ext import ApplicationBuilder
+from telegram.ext import Application, ApplicationBuilder
 
 from .bot import OpsBot
 from .config import load_config
@@ -21,20 +21,32 @@ def main() -> None:
     if config.seed_sample_data:
         seed_sample_tasks(conn)
 
-    application = ApplicationBuilder().token(config.telegram_bot_token).build()
-    OpsBot(conn, repo_root).register_handlers(application)
+    async def post_init(application: Application) -> None:
+        scheduler = configure_scheduler(
+            application=application,
+            conn=conn,
+            timezone=config.timezone,
+            admin_telegram_ids=config.admin_telegram_ids,
+        )
+        scheduler.start()
+        application.bot_data["scheduler"] = scheduler
 
-    scheduler = configure_scheduler(
-        application=application,
-        conn=conn,
-        timezone=config.timezone,
-        admin_telegram_ids=config.admin_telegram_ids,
+    async def post_shutdown(application: Application) -> None:
+        scheduler = application.bot_data.get("scheduler")
+        if scheduler and scheduler.running:
+            scheduler.shutdown(wait=False)
+
+    application = (
+        ApplicationBuilder()
+        .token(config.telegram_bot_token)
+        .post_init(post_init)
+        .post_shutdown(post_shutdown)
+        .build()
     )
-    scheduler.start()
+    OpsBot(conn, repo_root).register_handlers(application)
 
     application.run_polling()
 
 
 if __name__ == "__main__":
     main()
-
