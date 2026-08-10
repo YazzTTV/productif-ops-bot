@@ -11,6 +11,7 @@ VALID_PEOPLE = {
 }
 
 VALID_STATUSES = {"todo", "in_progress", "done", "blocked", "not_done", "cancelled"}
+VALID_PRIORITIES = {"P0", "P1", "P2"}
 
 
 def seed_people(conn: sqlite3.Connection) -> None:
@@ -159,6 +160,44 @@ def get_task(conn: sqlite3.Connection, task_id: str) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
 
 
+def create_task(
+    conn: sqlite3.Connection,
+    task_id: str,
+    title: str,
+    owner_id: str,
+    priority: str,
+    due_date: str,
+    sop_path: str | None = None,
+    description: str = "",
+    proof_required: bool = False,
+) -> bool:
+    if owner_id not in VALID_PEOPLE or priority not in VALID_PRIORITIES:
+        return False
+    if get_task(conn, task_id):
+        return False
+
+    conn.execute(
+        """
+        INSERT INTO tasks (
+            id, title, description, owner_id, priority, due_date, sop_path, proof_required
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            task_id,
+            title,
+            description,
+            owner_id,
+            priority,
+            due_date,
+            sop_path,
+            int(proof_required),
+        ),
+    )
+    conn.commit()
+    return True
+
+
 def update_task_status(
     conn: sqlite3.Connection,
     task_id: str,
@@ -210,4 +249,3 @@ def recap_counts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         ORDER BY people.id
         """
     ).fetchall()
-

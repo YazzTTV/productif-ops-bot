@@ -9,6 +9,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 
 from .messages import build_personal_plan, build_recap, load_sop_text
 from .tasks import (
+    create_task,
     get_person_by_telegram,
     get_task,
     list_tasks_for_person,
@@ -31,6 +32,7 @@ class OpsBot:
         application.add_handler(CommandHandler("notdone", self.notdone))
         application.add_handler(CommandHandler("recap", self.recap))
         application.add_handler(CommandHandler("sop", self.sop))
+        application.add_handler(CommandHandler("addtask", self.addtask))
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.effective_user or not update.message:
@@ -90,6 +92,51 @@ class OpsBot:
 
         await update.message.reply_text(sop_text)
 
+    async def addtask(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        person = self._current_person(update)
+        if not person or not update.message:
+            await self._reply_unregistered(update)
+            return
+
+        if person["id"] != "noah":
+            await update.message.reply_text("Commande reservee a Noah pour le MVP.")
+            return
+
+        fields = _parse_key_value_command(update.message.text or "")
+        required = {"owner", "title", "priority", "due"}
+        missing = sorted(required - fields.keys())
+        if missing:
+            await update.message.reply_text(
+                "Champs manquants: "
+                + ", ".join(missing)
+                + "\nUsage: /addtask owner:noah title:Soumettre TestFlight priority:P0 due:2026-08-13 sop:app-store-submit.md"
+            )
+            return
+
+        owner = fields["owner"].lower()
+        priority = fields["priority"].upper()
+        due = fields["due"]
+        task_id = fields.get("id") or _next_task_id(self.conn, owner)
+        sop = fields.get("sop")
+        proof_required = fields.get("proof", "false").lower() in {"1", "true", "yes", "required"}
+
+        ok = create_task(
+            self.conn,
+            task_id=task_id,
+            title=fields["title"],
+            owner_id=owner,
+            priority=priority,
+            due_date=due,
+            sop_path=sop,
+            description=fields.get("description", ""),
+            proof_required=proof_required,
+        )
+        if not ok:
+            await update.message.reply_text("Impossible de creer la tache. Verifie owner, priority ou id deja existant.")
+            return
+
+        await update.message.reply_text(f"Tache creee: {task_id} -> {owner} [{priority}] {fields['title']}")
+
     async def _set_status(self, update: Update, status: str) -> None:
         person = self._current_person(update)
         if not person or not update.message:
@@ -133,3 +180,32 @@ def _parse_status_command(text: str) -> tuple[str, str] | None:
         return None
     return match.group(1).upper(), match.group(2).strip()
 
+
+def _parse_key_value_command(text: str) -> dict[str, str]:
+    body = re.sub(r"^/\w+\s*", "", text.strip(), count=1)
+    matches = list(re.finditer(r"(\w+):", body))
+    fields: dict[str, str] = {}
+    for index, match in enumerate(matches):
+        key = match.group(1).lower()
+        value_start = match.end()
+        value_end = matches[index + 1].start() if index + 1 < len(matches) else len(body)
+        value = body[value_start:value_end].strip()
+        if value:
+            fields[key] = value
+    return fields
+
+
+def _next_task_id(conn: sqlite3.Connection, owner_id: str) -> str:
+    prefixes = {
+        "noah": "PIO",
+        "gaetan": "PIO-G",
+        "arthur": "PIO-A",
+    }
+    prefix = prefixes.get(owner_id, "PIO")
+    rows = conn.execute("SELECT id FROM tasks WHERE id LIKE ?", (f"{prefix}-%",)).fetchall()
+    max_number = 0
+    for row in rows:
+        match = re.match(rf"^{re.escape(prefix)}-(\d+)$", row["id"])
+        if match:
+            max_number = max(max_number, int(match.group(1)))
+    return f"{prefix}-{max_number + 1:03d}"
