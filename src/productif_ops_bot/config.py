@@ -14,6 +14,7 @@ class Config:
     database_path: Path
     admin_telegram_ids: tuple[int, ...]
     seed_sample_data: bool
+    enroll_code: str
 
 
 @dataclass(frozen=True)
@@ -26,14 +27,25 @@ class ApiConfig:
 
 
 def _parse_admin_ids(value: str) -> tuple[int, ...]:
+    """Parse a comma separated list of Telegram ids.
+
+    Placeholders such as `0` are dropped: a chat id of 0 does not exist, and
+    keeping it made every scheduled recap fail with a Telegram 400.
+    """
     if not value.strip():
         return ()
     ids: list[int] = []
     for raw_id in value.split(","):
         raw_id = raw_id.strip()
-        if raw_id:
-            ids.append(int(raw_id))
-    return tuple(ids)
+        if not raw_id:
+            continue
+        try:
+            parsed = int(raw_id)
+        except ValueError:
+            continue
+        if parsed > 0:
+            ids.append(parsed)
+    return tuple(dict.fromkeys(ids))
 
 
 def load_config() -> Config:
@@ -49,6 +61,7 @@ def load_config() -> Config:
         database_path=Path(os.getenv("DATABASE_PATH", "data/productif_ops.sqlite")),
         admin_telegram_ids=_parse_admin_ids(os.getenv("ADMIN_TELEGRAM_IDS", "")),
         seed_sample_data=os.getenv("SEED_SAMPLE_DATA", "true").lower() in {"1", "true", "yes"},
+        enroll_code=os.getenv("OPS_ENROLL_CODE", "").strip(),
     )
 
 

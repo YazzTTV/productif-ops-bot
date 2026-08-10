@@ -116,6 +116,10 @@ def register_telegram_user(conn: sqlite3.Connection, person_id: str, telegram_us
     return True
 
 
+def get_person(conn: sqlite3.Connection, person_id: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM people WHERE id = ?", (person_id,)).fetchone()
+
+
 def get_person_by_telegram(conn: sqlite3.Connection, telegram_user_id: int) -> sqlite3.Row | None:
     return conn.execute(
         "SELECT * FROM people WHERE telegram_user_id = ? AND active = 1",

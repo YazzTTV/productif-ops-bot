@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import secrets
 import sqlite3
 from datetime import date
 from pathlib import Path
@@ -29,9 +30,10 @@ from .tasks import (
 
 
 class OpsBot:
-    def __init__(self, conn: sqlite3.Connection, repo_root: Path) -> None:
+    def __init__(self, conn: sqlite3.Connection, repo_root: Path, enroll_code: str = "") -> None:
         self.conn = conn
         self.repo_root = repo_root
+        self.enroll_code = enroll_code.strip()
 
     def register_handlers(self, application: Application) -> None:
         application.add_handler(CommandHandler("start", self.start))
@@ -53,10 +55,20 @@ class OpsBot:
             return
 
         if not context.args:
-            await update.message.reply_text("Usage: /start noah | /start gaetan | /start arthur")
+            await update.message.reply_text(self._start_usage())
             return
 
         person_id = context.args[0].lower().strip()
+
+        # Sans code, n'importe quel inconnu qui trouve le bot peut revendiquer
+        # une identite encore libre et lire tout le plan de l'equipe.
+        if self.enroll_code and not self._enroll_code_matches(context.args):
+            await update.message.reply_text(
+                "Code d'enrolement manquant ou invalide. Demande-le a Noah, puis renvoie:\n"
+                f"/start {person_id or 'gaetan'} LE_CODE"
+            )
+            return
+
         ok = register_telegram_user(self.conn, person_id, update.effective_user.id)
         if not ok:
             await update.message.reply_text("Impossible de lier ce compte. Verifie le nom ou l'utilisateur deja lie.")
@@ -297,6 +309,15 @@ class OpsBot:
 
     def _is_admin(self, person: sqlite3.Row) -> bool:
         return person["id"] == "noah"
+
+    def _start_usage(self) -> str:
+        if self.enroll_code:
+            return "Usage: /start noah CODE | /start gaetan CODE | /start arthur CODE"
+        return "Usage: /start noah | /start gaetan | /start arthur"
+
+    def _enroll_code_matches(self, args: list[str]) -> bool:
+        provided = args[1].strip() if len(args) > 1 else ""
+        return secrets.compare_digest(provided, self.enroll_code)
 
     async def _reply_unregistered(self, update: Update) -> None:
         if update.message:

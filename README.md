@@ -67,8 +67,13 @@ In Telegram, open the bot and send:
 ### Register
 
 ```text
-/start noah
+/start noah rentree2026
 ```
+
+The second argument is the value of `OPS_ENROLL_CODE`. It is required as soon as
+that variable is set, and it is what stops a stranger who finds the bot from
+claiming an unclaimed identity and reading the whole team plan. Without the
+variable the command stays `/start noah`, and the bot logs a warning at startup.
 
 Valid people in the MVP:
 
@@ -192,9 +197,36 @@ seeds/productif_plan_2026_08_10.json
 
 By default, this seed archives old open sample tasks that are not part of the real plan. Existing seed tasks keep their current status when reimported, so rerunning the import does not reset work already marked done or blocked.
 
-## VPS deployment later
+## Deployment, as actually done
 
-Create a dedicated Linux user, clone the repo, configure `.env`, then run the service with systemd. Do not deploy before the local bot works.
+The live instance runs on a **Windows** machine, so `deploy/systemd/` is unused.
+Three WinSW services, all auto-start with restart-on-failure:
+
+```text
+ProductifOpsApi     .venv\Scripts\productif-ops-api.exe    bound to 127.0.0.1:8787
+ProductifOpsBot     .venv\Scripts\productif-ops-bot.exe
+ProductifOpsCaddy   caddy.exe run --config C:\caddy\Caddyfile
+```
+
+Caddy terminates HTTPS for `ops.productif.io` and reverse-proxies to the API.
+The host's IPv4 is shared and does not forward 80/443, so the public entry point
+is **IPv6**, plus a shared SNI pass-through IPv4 frontend for clients without
+IPv6. Both DNS records are required:
+
+```text
+AAAA  ops  -> the host's global IPv6
+A     ops  -> the IPv4 frontend of the provider
+```
+
+Two consequences worth knowing before debugging an outage. The host sits on a
+residential line, so its IPv6 prefix is not guaranteed static: if it changes the
+`AAAA` record goes stale and the API dies with no error anywhere. And never run
+the bot locally while the service is running, since two pollers on one token
+produce a loop of Telegram `409 Conflict`.
+
+Backups: the bot snapshots the database every day at 23:30 into
+`data/backups/`, keeping the last 14. That directory is git-ignored, so copy it
+off the machine periodically. The database is the source of truth of the tool.
 
 ## AI worker later
 

@@ -4,6 +4,10 @@ __pycache__/
 *.pyc
 *.sqlite
 *.sqlite3
+# WAL mode writes these next to the database; `git add .` would pick them up.
+*.sqlite-wal
+*.sqlite-shm
+data/backups/
 .DS_Store
 .pytest_cache/
 .mypy_cache/

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from telegram.ext import Application, ApplicationBuilder
+from telegram.ext import Application, ApplicationBuilder, ContextTypes
 
 from .bot import OpsBot
 from .config import load_config
@@ -29,6 +29,7 @@ def main() -> None:
             conn=conn,
             timezone=config.timezone,
             admin_telegram_ids=config.admin_telegram_ids,
+            database_path=config.database_path,
         )
         scheduler.start()
         application.bot_data["scheduler"] = scheduler
@@ -38,6 +39,18 @@ def main() -> None:
         if scheduler and scheduler.running:
             scheduler.shutdown(wait=False)
 
+    async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        # Sans ce handler, une exception dans une commande ne laisse qu'une trace
+        # dans les logs du serveur et l'utilisateur croit le bot mort.
+        logging.error("Unhandled bot error", exc_info=context.error)
+        message = getattr(update, "message", None)
+        if message is None:
+            return
+        try:
+            await message.reply_text("Erreur interne. Le detail est dans les logs du serveur.")
+        except Exception:
+            logging.exception("Could not report the error back to the user")
+
     application = (
         ApplicationBuilder()
         .token(config.telegram_bot_token)
@@ -45,7 +58,13 @@ def main() -> None:
         .post_shutdown(post_shutdown)
         .build()
     )
-    OpsBot(conn, repo_root).register_handlers(application)
+    OpsBot(conn, repo_root, enroll_code=config.enroll_code).register_handlers(application)
+    application.add_error_handler(on_error)
+
+    if not config.enroll_code:
+        logging.warning(
+            "OPS_ENROLL_CODE is empty: anyone who finds this bot can claim a free identity via /start."
+        )
 
     logging.info("Productif Ops Bot running. Press Ctrl+C to stop.")
     application.run_polling()

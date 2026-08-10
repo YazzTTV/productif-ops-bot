@@ -1,15 +1,24 @@
 import sqlite3
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from productif_ops_bot.config import _parse_admin_ids
 from productif_ops_bot.db import init_db
 from productif_ops_bot.import_plan import import_plan
 from productif_ops_bot.messages import build_evening_checkin, build_personal_plan, build_recap
-from productif_ops_bot.bot import _next_task_id, _parse_admin_status_command, _parse_key_value_command, _split_telegram_text
+from productif_ops_bot.bot import (
+    OpsBot,
+    _next_task_id,
+    _parse_admin_status_command,
+    _parse_key_value_command,
+    _split_telegram_text,
+)
 from productif_ops_bot.messages import build_task_detail, build_task_list
+from productif_ops_bot.scheduler import backup_database, resolve_admin_recipients
 from productif_ops_bot.tasks import (
     admin_update_task_status,
     assign_task,
@@ -21,6 +30,7 @@ from productif_ops_bot.tasks import (
     list_tasks,
     list_tasks_for_person,
     recap_counts,
+    register_telegram_user,
     seed_people,
     seed_sample_tasks,
 )
@@ -146,6 +156,55 @@ class MessageTests(unittest.TestCase):
         self.assertIn("APP-001", task_ids)
         self.assertIn("DEV-001", task_ids)
         self.assertNotIn("APP-003", task_ids)
+
+    def test_parse_admin_ids_drops_placeholders(self):
+        self.assertEqual(_parse_admin_ids("0"), ())
+        self.assertEqual(_parse_admin_ids(""), ())
+        self.assertEqual(_parse_admin_ids("nope"), ())
+        self.assertEqual(_parse_admin_ids("0, 123, -5, 123"), (123,))
+
+    def test_enroll_code_gate(self):
+        guarded = OpsBot(self.conn, Path("."), enroll_code="rentree2026")
+        self.assertFalse(guarded._enroll_code_matches(["gaetan"]))
+        self.assertFalse(guarded._enroll_code_matches(["gaetan", "wrong"]))
+        self.assertTrue(guarded._enroll_code_matches(["gaetan", "rentree2026"]))
+        self.assertIn("CODE", guarded._start_usage())
+
+        open_bot = OpsBot(self.conn, Path("."))
+        self.assertEqual(open_bot.enroll_code, "")
+        self.assertNotIn("CODE", open_bot._start_usage())
+
+    def test_admin_recipients_fall_back_to_noah(self):
+        register_telegram_user(self.conn, "noah", 4242)
+        self.assertEqual(resolve_admin_recipients(self.conn, ()), (4242,))
+        self.assertEqual(resolve_admin_recipients(self.conn, (99,)), (99,))
+
+    def test_admin_recipients_empty_without_linked_noah(self):
+        self.assertEqual(resolve_admin_recipients(self.conn, ()), ())
+
+    def test_backup_database_creates_snapshot_and_prunes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            database_path = Path(tmp) / "productif_ops.sqlite"
+            database_path.touch()
+            backup_dir = database_path.parent / "backups"
+            backup_dir.mkdir()
+            for day in range(3):
+                (backup_dir / f"productif_ops-2026-01-0{day + 1}.sqlite").touch()
+
+            target = backup_database(self.conn, database_path, keep=2)
+
+            self.assertTrue(target.is_file())
+            snapshots = sorted(backup_dir.glob("productif_ops-*.sqlite"))
+            self.assertEqual(len(snapshots), 2)
+            self.assertIn(target, snapshots)
+
+            restored = sqlite3.connect(target)
+            try:
+                restored.row_factory = sqlite3.Row
+                people = {row["id"] for row in restored.execute("SELECT id FROM people")}
+            finally:
+                restored.close()
+            self.assertEqual(people, {"noah", "gaetan", "arthur"})
 
     def test_split_telegram_text_keeps_chunks_under_limit(self):
         text = "\n".join(f"line {i} " + ("x" * 100) for i in range(100))
